@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "h-cli"
+version = "1.0.0"
+description = "Terminal-based streaming client with themed UI and MPV playback"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.25.0",
+    "beautifulsoup4>=4.9.0",
+]
+
+[project.scripts]
+hcli = "hcli.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hcli"]

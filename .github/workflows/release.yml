@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: hcli-linux-x86_64
+            ext: tar.gz
+          - os: windows-latest
+            artifact: hcli-windows-x86_64
+            ext: zip
+          - os: macos-13
+            artifact: hcli-macos-x86_64
+            ext: tar.gz
+          - os: macos-latest
+            artifact: hcli-macos-arm64
+            ext: tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install . pyinstaller
+
+      - name: Build standalone executable
+        run: |
+          python -c "
+          with open('_entry.py', 'w') as f:
+              f.write('import hcli._app\n')
+              f.write('from hcli.cli import main\n')
+              f.write('main()\n')
+          "
+          pyinstaller --onefile --name hcli --clean _entry.py
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: tar -czf dist/${{ matrix.artifact }}.tar.gz -C dist hcli
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/hcli.exe -DestinationPath dist/${{ matrix.artifact }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.${{ matrix.ext }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+
+      - name: Flatten artifacts and generate checksums
+        run: |
+          mkdir -p out
+          find release -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} out/ \;
+          cd out
+          sha256sum * > SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

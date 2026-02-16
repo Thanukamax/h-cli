@@ -1,6 +1,7 @@
 # ── H-CLI Installer (Windows PowerShell) ──
+# Alternative installation via shell functions (for users who don't use pipx)
 
-$hcliPath = Join-Path $PSScriptRoot "h-cli.py"
+$repoDir = Split-Path $PSScriptRoot
 
 Write-Host "--- H-CLI Windows Installer ---" -ForegroundColor Cyan
 
@@ -11,7 +12,7 @@ if (!(Get-Command $pythonCmd -ErrorAction SilentlyContinue)) {
     if (!(Get-Command $pythonCmd -ErrorAction SilentlyContinue)) {
         $pythonCmd = "py"
         if (!(Get-Command $pythonCmd -ErrorAction SilentlyContinue)) {
-            Write-Host "Error: Python not found. Install Python 3.8+ from https://www.python.org/" -ForegroundColor Red
+            Write-Host "Error: Python not found. Install Python 3.9+ from https://www.python.org/" -ForegroundColor Red
             exit
         }
     }
@@ -39,16 +40,18 @@ if (!(Test-Path $profilePath)) {
     New-Item -ItemType File -Path $profilePath -Force | Out-Null
 }
 
+$srcDir = Join-Path $repoDir "src"
+
 $aliasCode = @"
 
 # --- H-CLI Aliases ---
-function hcli { $pythonCmd "$hcliPath" `$args }
-function hcli360 { $pythonCmd "$hcliPath" -q 360 `$args }
-function hcli480 { $pythonCmd "$hcliPath" -q 480 `$args }
-function hcli720 { $pythonCmd "$hcliPath" -q 720 `$args }
-function hcli1080 { $pythonCmd "$hcliPath" -q 1080 `$args }
-function hclidl { $pythonCmd "$hcliPath" -d `$args }
-function hclicc { $pythonCmd "$hcliPath" --clear-cache }
+function hcli { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli `$args }
+function hcli360 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 360 `$args }
+function hcli480 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 480 `$args }
+function hcli720 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 720 `$args }
+function hcli1080 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 1080 `$args }
+function hclidl { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -d `$args }
+function hclicc { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli --clear-cache }
 # ----------------------
 "@
 

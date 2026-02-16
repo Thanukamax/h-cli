@@ -2,76 +2,93 @@
 
 A terminal-based streaming client with a themed UI, multi-source support, and MPV playback.
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 ---
 
-## Quick Start
+## Install
 
-### Linux
+### Pre-built binaries (no Python required)
+
+Download the latest release for your platform from [Releases](https://github.com/Thanukamax/h-cli/releases/latest):
+
+| Platform | File |
+|----------|------|
+| Linux x86_64 | `hcli-linux-x86_64.tar.gz` |
+| macOS arm64 (Apple Silicon) | `hcli-macos-arm64.tar.gz` |
+| macOS x86_64 (Intel) | `hcli-macos-x86_64.tar.gz` |
+| Windows x86_64 | `hcli-windows-x86_64.zip` |
+
 ```bash
-git clone https://github.com/Thanukamax/h-cli.git
-cd h-cli/H-CLI\ code
-bash install.sh
-source ~/.bashrc   # or: source ~/.zshrc
+# Linux / macOS
+tar xzf hcli-linux-x86_64.tar.gz
+sudo mv hcli /usr/local/bin/
+
+# Windows — extract the zip, then add the folder to your PATH
 ```
 
-### Windows (PowerShell)
-```powershell
-git clone https://github.com/Thanukamax/h-cli.git
-cd "h-cli\H-CLI code"
-.\install.ps1
+#### Verify checksums
+
+Each release includes a `SHA256SUMS` file. To verify your download:
+
+```bash
+# Linux
+sha256sum -c SHA256SUMS --ignore-missing
+
+# macOS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+
+# Windows (PowerShell)
+(Get-FileHash hcli-windows-x86_64.zip -Algorithm SHA256).Hash
+# Compare with the hash in SHA256SUMS
 ```
 
-The installer handles everything — installs Python dependencies, checks for mpv, and adds shell aliases so you can run `hcli` from anywhere.
+### With pipx / uv (requires Python 3.9+)
+
+```bash
+pipx install git+https://github.com/Thanukamax/h-cli.git
+```
+
+or with uv:
+
+```bash
+uv tool install git+https://github.com/Thanukamax/h-cli.git
+```
 
 ## Requirements
 
-- **Python 3.8+**
 - **MPV** - Video player ([mpv.io](https://mpv.io))
 - **yt-dlp** - Required for downloads and some external mirrors (`pip install yt-dlp`)
 
-## Manual Installation
+### System Dependencies
 
-If you prefer not to use the installer:
-
-### Linux (Debian/Ubuntu)
+#### Linux (Debian/Ubuntu)
 ```bash
-sudo apt update && sudo apt install python3 python3-pip mpv ffmpeg
-pip3 install requests beautifulsoup4 yt-dlp
+sudo apt update && sudo apt install mpv ffmpeg
+pip install yt-dlp
 ```
 
-### Linux (Fedora)
+#### Linux (Fedora)
 ```bash
-sudo dnf install python3 python3-pip mpv ffmpeg
-pip3 install requests beautifulsoup4 yt-dlp
+sudo dnf install mpv ffmpeg
+pip install yt-dlp
 ```
 
-### Windows
+#### Windows
 ```powershell
 winget install mpv
-pip install requests beautifulsoup4 yt-dlp
-```
-
-Then run directly with:
-```bash
-python "H-CLI code/h-cli.py"
+pip install yt-dlp
 ```
 
 ## Commands
-
-After running the installer:
 
 | Command | Description |
 |---------|-------------|
 | `hcli` | Interactive mode |
 | `hcli "search term"` | Search and stream |
-| `hcli360 "search term"` | Stream at 360p |
-| `hcli480 "search term"` | Stream at 480p |
-| `hcli720 "search term"` | Stream at 720p |
-| `hcli1080 "search term"` | Stream at 1080p |
-| `hclidl "search term"` | Download mode |
-| `hclicc` | Clear stream cache |
+| `hcli -q 1080` | Stream at 1080p |
+| `hcli -d` | Download mode |
+| `hcli --clear-cache` | Clear stream cache |
 
 ## Playback Controls
 
@@ -104,6 +121,25 @@ Press **space 3 times within 2 seconds** at any point during the session to inst
 | `~/.cache/h-cli/` | Stream URL cache (Linux) |
 | `~/.h-cli/` | Stream URL cache (Windows) |
 | `~/Videos/H-CLI/` | Downloaded episodes |
+
+## Alternative Installation
+
+If you prefer shell aliases instead of `pipx`, clone the repo and run the installer:
+
+### Linux
+```bash
+git clone https://github.com/Thanukamax/h-cli.git
+cd h-cli
+bash scripts/install.sh
+source ~/.bashrc   # or: source ~/.zshrc
+```
+
+### Windows (PowerShell)
+```powershell
+git clone https://github.com/Thanukamax/h-cli.git
+cd h-cli
+.\scripts\install.ps1
+```
 
 ## Disclaimer
 

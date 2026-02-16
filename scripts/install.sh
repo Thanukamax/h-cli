@@ -1,12 +1,10 @@
 #!/bin/bash
 
 # ── H-CLI Installer (Linux / macOS / Termux) ──
+# Alternative installation via shell aliases (for users who don't use pipx)
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-HCLI_PATH="$SCRIPT_DIR/h-cli.py"
-
-# Make sure it's executable
-chmod +x "$HCLI_PATH"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
 echo "--- H-CLI Installer ---"
 
@@ -20,7 +18,7 @@ for cmd in python3 python; do
 done
 
 if [ -z "$PYTHON_CMD" ]; then
-    echo "Error: Python not found. Install Python 3.8+ first."
+    echo "Error: Python not found. Install Python 3.9+ first."
     exit 1
 fi
 echo "Found Python: $(command -v $PYTHON_CMD)"
@@ -58,13 +56,13 @@ else
     {
         echo ""
         echo "# H-CLI Aliases"
-        echo "alias hcli='$PYTHON_CMD \"$HCLI_PATH\"'"
-        echo "alias hcli360='$PYTHON_CMD \"$HCLI_PATH\" -q 360'"
-        echo "alias hcli480='$PYTHON_CMD \"$HCLI_PATH\" -q 480'"
-        echo "alias hcli720='$PYTHON_CMD \"$HCLI_PATH\" -q 720'"
-        echo "alias hcli1080='$PYTHON_CMD \"$HCLI_PATH\" -q 1080'"
-        echo "alias hclidl='$PYTHON_CMD \"$HCLI_PATH\" -d'"
-        echo "alias hclicc='$PYTHON_CMD \"$HCLI_PATH\" --clear-cache'"
+        echo "alias hcli='PYTHONPATH=\"$REPO_DIR/src\" $PYTHON_CMD -m hcli'"
+        echo "alias hcli360='PYTHONPATH=\"$REPO_DIR/src\" $PYTHON_CMD -m hcli -q 360'"
+        echo "alias hcli480='PYTHONPATH=\"$REPO_DIR/src\" $PYTHON_CMD -m hcli -q 480'"
+        echo "alias hcli720='PYTHONPATH=\"$REPO_DIR/src\" $PYTHON_CMD -m hcli -q 720'"
+        echo "alias hcli1080='PYTHONPATH=\"$REPO_DIR/src\" $PYTHON_CMD -m hcli -q 1080'"
+        echo "alias hclidl='PYTHONPATH=\"$REPO_DIR/src\" $PYTHON_CMD -m hcli -d'"
+        echo "alias hclicc='PYTHONPATH=\"$REPO_DIR/src\" $PYTHON_CMD -m hcli --clear-cache'"
     } >> "$RC_FILE"
 
     echo "Aliases added to $RC_FILE"

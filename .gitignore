@@ -1,3 +1,7 @@
 Reference/
 __pycache__/
 *.pyc
+dist/
+build/
+*.egg-info/
+src/*.egg-info/

@@ -970,14 +970,14 @@ class HentaiCLI:
     def run(self):
         """Entry point - parse args and dispatch"""
         parser = argparse.ArgumentParser(
-            prog="h-cli",
+            prog="hcli",
             description="H-CLI - Terminal streaming client",
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog="""
 Examples:
-  h-cli "search term"              Search and stream
-  h-cli "search term" -q 1080      Stream at 1080p
-  h-cli "search term" -d           Download mode
+  hcli "search term"              Search and stream
+  hcli "search term" -q 1080      Stream at 1080p
+  hcli "search term" -d           Download mode
             """,
         )
         parser.add_argument("query", nargs="?", help="Search query")
@@ -1226,24 +1226,3 @@ Examples:
     def _cleanup(self):
         if self.player:
             self.player.stop()
-
-
-# ============================================================================
-# ENTRY POINT
-# ============================================================================
-if __name__ == "__main__":
-    if os.name == "nt":
-        try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
-        except Exception:
-            pass
-
-    os.makedirs(Config.CACHE_DIR, exist_ok=True)
-    os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
-
-    _InputReader.start()
-
-    app = HentaiCLI()
-    app.run()
