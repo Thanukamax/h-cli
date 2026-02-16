@@ -13,10 +13,10 @@ A terminal-based streaming client with a themed UI, multi-source support, and MP
 pip install requests beautifulsoup4
 
 # Run interactive mode
-python h-cli.py
+python "H-CLI code/h-cli.py"
 
 # Or search directly
-python h-cli.py "search term"
+python "H-CLI code/h-cli.py" "search term"
 ```
 
 ## Requirements
@@ -61,19 +61,19 @@ pip install requests beautifulsoup4 yt-dlp
 
 ```bash
 # Interactive mode - prompts for search
-python h-cli.py
+python "H-CLI code/h-cli.py"
 
 # Direct search and stream
-python h-cli.py "search term"
+python "H-CLI code/h-cli.py" "search term"
 
 # Stream at 1080p
-python h-cli.py "search term" -q 1080
+python "H-CLI code/h-cli.py" "search term" -q 1080
 
 # Download mode
-python h-cli.py "search term" -d
+python "H-CLI code/h-cli.py" "search term" -d
 
 # Clear stream cache
-python h-cli.py --clear-cache
+python "H-CLI code/h-cli.py" --clear-cache
 ```
 
 ## Playback Controls
