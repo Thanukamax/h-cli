@@ -8,7 +8,41 @@ A terminal-based streaming client with a themed UI, multi-source support, and MP
 
 ## Install
 
-### Pre-built binaries (no Python required)
+### One-line install (recommended)
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Thanukamax/h-cli/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/Thanukamax/h-cli/main/scripts/install.ps1 | iex
+```
+
+The installer automatically detects your OS and architecture, downloads the correct binary from [GitHub Releases](https://github.com/Thanukamax/h-cli/releases/latest), verifies the SHA256 checksum, and installs to `~/.local/bin` (Linux/macOS) or `%LOCALAPPDATA%\Programs\hcli\bin` (Windows).
+
+**Options (Linux/macOS):**
+```bash
+# Install a specific version
+curl -fsSL ... | bash -s -- --version v1.0.0
+
+# Install to /usr/local/bin (requires sudo)
+curl -fsSL ... | bash -s -- --sudo
+
+# Install to a custom directory
+curl -fsSL ... | bash -s -- --dir /opt/bin
+```
+
+**Options (Windows):**
+```powershell
+# Save and run with flags
+Invoke-WebRequest -Uri https://raw.githubusercontent.com/Thanukamax/h-cli/main/scripts/install.ps1 -OutFile install.ps1
+.\install.ps1 -Version v1.0.0
+.\install.ps1 -InstallDir "C:\Tools"
+```
+
+### Manual download
 
 Download the latest release for your platform from [Releases](https://github.com/Thanukamax/h-cli/releases/latest):
 
@@ -29,7 +63,7 @@ sudo mv hcli /usr/local/bin/
 
 #### Verify checksums
 
-Each release includes a `SHA256SUMS` file. To verify your download:
+Each release includes a `SHA256SUMS` file:
 
 ```bash
 # Linux
@@ -121,25 +155,6 @@ Press **space 3 times within 2 seconds** at any point during the session to inst
 | `~/.cache/h-cli/` | Stream URL cache (Linux) |
 | `~/.h-cli/` | Stream URL cache (Windows) |
 | `~/Videos/H-CLI/` | Downloaded episodes |
-
-## Alternative Installation
-
-If you prefer shell aliases instead of `pipx`, clone the repo and run the installer:
-
-### Linux
-```bash
-git clone https://github.com/Thanukamax/h-cli.git
-cd h-cli
-bash scripts/install.sh
-source ~/.bashrc   # or: source ~/.zshrc
-```
-
-### Windows (PowerShell)
-```powershell
-git clone https://github.com/Thanukamax/h-cli.git
-cd h-cli
-.\scripts\install.ps1
-```
 
 ## Disclaimer
 

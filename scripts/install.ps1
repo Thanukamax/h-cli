@@ -1,75 +1,126 @@
-# ── H-CLI Installer (Windows PowerShell) ──
-# Alternative installation via shell functions (for users who don't use pipx)
+# ── H-CLI Installer (Windows) ──
+# Downloads the correct pre-built binary from GitHub Releases.
+#
+# Usage:
+#   irm https://raw.githubusercontent.com/Thanukamax/h-cli/main/scripts/install.ps1 | iex
+#   .\install.ps1
+#   .\install.ps1 -Version v1.0.0
 
-$repoDir = Split-Path $PSScriptRoot
+param(
+    [string]$Version = "",
+    [string]$InstallDir = ""
+)
 
-Write-Host "--- H-CLI Windows Installer ---" -ForegroundColor Cyan
+$ErrorActionPreference = "Stop"
 
-# 1. Detect Python
-$pythonCmd = "python"
-if (!(Get-Command $pythonCmd -ErrorAction SilentlyContinue)) {
-    $pythonCmd = "python3"
-    if (!(Get-Command $pythonCmd -ErrorAction SilentlyContinue)) {
-        $pythonCmd = "py"
-        if (!(Get-Command $pythonCmd -ErrorAction SilentlyContinue)) {
-            Write-Host "Error: Python not found. Install Python 3.9+ from https://www.python.org/" -ForegroundColor Red
-            exit
-        }
+$Repo = "Thanukamax/h-cli"
+$Cmd = "hcli"
+
+# ── Detect arch ───────────────────────────────────────────────────────────────
+$Arch = $env:PROCESSOR_ARCHITECTURE
+switch ($Arch) {
+    "AMD64"  { $ArchLabel = "x86_64" }
+    "x86"    { $ArchLabel = "x86_64" }   # 32-bit PS on 64-bit Windows
+    default  {
+        Write-Host "Error: Unsupported architecture: $Arch" -ForegroundColor Red
+        Write-Host "Install via pipx instead: pipx install git+https://github.com/$Repo.git"
+        exit 1
     }
 }
-Write-Host "Found Python: $(Get-Command $pythonCmd | Select-Object -ExpandProperty Source)" -ForegroundColor Gray
 
-# 2. Install dependencies
-Write-Host "Installing Python dependencies..." -ForegroundColor Yellow
-& $pythonCmd -m pip install requests beautifulsoup4 yt-dlp
+$Artifact = "$Cmd-windows-$ArchLabel.zip"
+Write-Host "Detected: Windows $ArchLabel -> $Artifact" -ForegroundColor Cyan
 
-# 3. Check for mpv
-if (!(Get-Command mpv -ErrorAction SilentlyContinue)) {
-    Write-Host "Warning: 'mpv' not found. Install it via 'winget install mpv' or from https://mpv.io/" -ForegroundColor Yellow
+# ── Resolve install directory ─────────────────────────────────────────────────
+if (-not $InstallDir) {
+    $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\$Cmd\bin"
 }
 
-# 4. Add to PowerShell Profile
-$profilePath = $PROFILE.CurrentUserCurrentHost
-if (!$profilePath) { $profilePath = $PROFILE }
-
-$profileDir = Split-Path $profilePath
-if (!(Test-Path $profileDir)) {
-    New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
-}
-if (!(Test-Path $profilePath)) {
-    New-Item -ItemType File -Path $profilePath -Force | Out-Null
-}
-
-$srcDir = Join-Path $repoDir "src"
-
-$aliasCode = @"
-
-# --- H-CLI Aliases ---
-function hcli { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli `$args }
-function hcli360 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 360 `$args }
-function hcli480 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 480 `$args }
-function hcli720 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 720 `$args }
-function hcli1080 { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -q 1080 `$args }
-function hclidl { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli -d `$args }
-function hclicc { `$env:PYTHONPATH="$srcDir"; $pythonCmd -m hcli --clear-cache }
-# ----------------------
-"@
-
-$currentContent = Get-Content $profilePath -ErrorAction SilentlyContinue
-if (!($currentContent -match "H-CLI Aliases")) {
-    Add-Content -Path $profilePath -Value $aliasCode
-    Write-Host "Aliases added to $profilePath" -ForegroundColor Green
-    Write-Host "Restart PowerShell or run: . `$PROFILE" -ForegroundColor Cyan
+# ── Resolve download URLs ────────────────────────────────────────────────────
+if ($Version) {
+    $BaseUrl = "https://github.com/$Repo/releases/download/$Version"
 } else {
-    Write-Host "H-CLI aliases already exist in your profile. Skipping." -ForegroundColor Gray
+    $BaseUrl = "https://github.com/$Repo/releases/latest/download"
 }
 
+$ArtifactUrl = "$BaseUrl/$Artifact"
+$ChecksumUrl = "$BaseUrl/SHA256SUMS"
+
+# ── Download ──────────────────────────────────────────────────────────────────
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "hcli-install-$([System.Guid]::NewGuid().ToString('N').Substring(0,8))"
+New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
+
+try {
+    Write-Host "Downloading $Artifact ..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $ArtifactUrl -OutFile (Join-Path $TmpDir $Artifact) -UseBasicParsing
+
+    Write-Host "Downloading SHA256SUMS ..." -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $ChecksumUrl -OutFile (Join-Path $TmpDir "SHA256SUMS") -UseBasicParsing
+
+    # ── Verify checksum ──────────────────────────────────────────────────────
+    Write-Host "Verifying checksum ..." -ForegroundColor Yellow
+
+    $ActualHash = (Get-FileHash (Join-Path $TmpDir $Artifact) -Algorithm SHA256).Hash.ToLower()
+    $ChecksumContent = Get-Content (Join-Path $TmpDir "SHA256SUMS")
+    $ExpectedLine = $ChecksumContent | Where-Object { $_ -match $Artifact }
+
+    if (-not $ExpectedLine) {
+        Write-Host "Error: $Artifact not found in SHA256SUMS" -ForegroundColor Red
+        exit 1
+    }
+
+    $ExpectedHash = ($ExpectedLine -split '\s+')[0].ToLower()
+
+    if ($ActualHash -ne $ExpectedHash) {
+        Write-Host "Error: Checksum mismatch!" -ForegroundColor Red
+        Write-Host "  Expected: $ExpectedHash"
+        Write-Host "  Actual:   $ActualHash"
+        exit 1
+    }
+
+    Write-Host "Checksum OK" -ForegroundColor Green
+
+    # ── Extract + install ────────────────────────────────────────────────────
+    Write-Host "Installing to $InstallDir ..." -ForegroundColor Yellow
+
+    Expand-Archive -Path (Join-Path $TmpDir $Artifact) -DestinationPath $TmpDir -Force
+
+    if (!(Test-Path $InstallDir)) {
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    }
+
+    Copy-Item -Path (Join-Path $TmpDir "$Cmd.exe") -Destination (Join-Path $InstallDir "$Cmd.exe") -Force
+
+    Write-Host "Installed $Cmd.exe to $InstallDir" -ForegroundColor Green
+
+    # ── PATH check ───────────────────────────────────────────────────────────
+    $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($UserPath -split ';' -notcontains $InstallDir) {
+        Write-Host ""
+        Write-Host "$InstallDir is not in your PATH." -ForegroundColor Yellow
+        Write-Host ""
+
+        $AddPath = Read-Host "Add it to your User PATH now? [Y/n]"
+        if ($AddPath -eq "" -or $AddPath -match "^[Yy]") {
+            $NewPath = "$UserPath;$InstallDir"
+            [Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
+            Write-Host "Added to User PATH." -ForegroundColor Green
+            Write-Host "Restart your terminal for the change to take effect." -ForegroundColor Cyan
+        } else {
+            Write-Host "To add it manually, run:" -ForegroundColor Yellow
+            Write-Host "  [Environment]::SetEnvironmentVariable('Path', `$env:Path + ';$InstallDir', 'User')" -ForegroundColor White
+        }
+    }
+
+} finally {
+    # ── Cleanup ──────────────────────────────────────────────────────────────
+    Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
+}
+
+# ── Done ──────────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "Commands:" -ForegroundColor Cyan
-Write-Host "  hcli                   Interactive mode"
-Write-Host "  hcli `"search term`"     Search and stream"
-Write-Host "  hcli1080 `"search term`" Stream at 1080p"
-Write-Host "  hclidl `"search term`"   Download mode"
-Write-Host "  hclicc                 Clear stream cache"
+Write-Host "Done! Run '$Cmd --help' to get started." -ForegroundColor Green
 Write-Host ""
-Write-Host "Installation complete!" -ForegroundColor Green
+Write-Host "You also need mpv and yt-dlp installed:" -ForegroundColor Yellow
+Write-Host "  winget install mpv"
+Write-Host "  pip install yt-dlp"
