@@ -50,7 +50,6 @@ Download the latest release for your platform from [Releases](https://github.com
 |----------|------|
 | Linux x86_64 | `hcli-linux-x86_64.tar.gz` |
 | macOS arm64 (Apple Silicon) | `hcli-macos-arm64.tar.gz` |
-| macOS x86_64 (Intel) | `hcli-macos-x86_64.tar.gz` |
 | Windows x86_64 | `hcli-windows-x86_64.zip` |
 
 ```bash

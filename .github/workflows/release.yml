@@ -19,9 +19,6 @@ jobs:
           - os: windows-latest
             artifact: hcli-windows-x86_64
             ext: zip
-          - os: macos-13
-            artifact: hcli-macos-x86_64
-            ext: tar.gz
           - os: macos-latest
             artifact: hcli-macos-arm64
             ext: tar.gz
