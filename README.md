@@ -8,16 +8,22 @@ A terminal-based streaming client with a themed UI, multi-source support, and MP
 
 ## Quick Start
 
+### Linux / macOS / Termux
 ```bash
-# Install dependencies
-pip install requests beautifulsoup4
-
-# Run interactive mode
-python "H-CLI code/h-cli.py"
-
-# Or search directly
-python "H-CLI code/h-cli.py" "search term"
+git clone https://github.com/Thanukamax/h-cli.git
+cd h-cli/H-CLI\ code
+bash install.sh
+source ~/.bashrc   # or ~/.zshrc
 ```
+
+### Windows (PowerShell)
+```powershell
+git clone https://github.com/Thanukamax/h-cli.git
+cd h-cli\H-CLI` code
+.\install.ps1
+```
+
+The installer will install Python dependencies, check for mpv, and add shell aliases so you can run `hcli` from anywhere.
 
 ## Requirements
 
@@ -25,13 +31,9 @@ python "H-CLI code/h-cli.py" "search term"
 - **MPV** - Video player ([mpv.io](https://mpv.io))
 - **yt-dlp** - Required for downloads and some external mirrors (`pip install yt-dlp`)
 
-### Python packages
+## Manual Installation
 
-```bash
-pip install requests beautifulsoup4
-```
-
-## Installation
+If you prefer not to use the installer:
 
 ### Linux (Debian/Ubuntu)
 ```bash
@@ -57,24 +59,25 @@ pkg install python mpv ffmpeg
 pip install requests beautifulsoup4 yt-dlp
 ```
 
-## Usage
-
+Then run directly with:
 ```bash
-# Interactive mode - prompts for search
 python "H-CLI code/h-cli.py"
-
-# Direct search and stream
-python "H-CLI code/h-cli.py" "search term"
-
-# Stream at 1080p
-python "H-CLI code/h-cli.py" "search term" -q 1080
-
-# Download mode
-python "H-CLI code/h-cli.py" "search term" -d
-
-# Clear stream cache
-python "H-CLI code/h-cli.py" --clear-cache
 ```
+
+## Commands
+
+After running the installer:
+
+| Command | Description |
+|---------|-------------|
+| `hcli` | Interactive mode |
+| `hcli "search term"` | Search and stream |
+| `hcli360 "search term"` | Stream at 360p |
+| `hcli480 "search term"` | Stream at 480p |
+| `hcli720 "search term"` | Stream at 720p |
+| `hcli1080 "search term"` | Stream at 1080p |
+| `hclidl "search term"` | Download mode |
+| `hclicc` | Clear stream cache |
 
 ## Playback Controls
 
