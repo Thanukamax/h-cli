@@ -8,22 +8,22 @@ A terminal-based streaming client with a themed UI, multi-source support, and MP
 
 ## Quick Start
 
-### Linux / macOS / Termux
+### Linux
 ```bash
 git clone https://github.com/Thanukamax/h-cli.git
 cd h-cli/H-CLI\ code
 bash install.sh
-source ~/.bashrc   # or ~/.zshrc
+source ~/.bashrc   # or: source ~/.zshrc
 ```
 
 ### Windows (PowerShell)
 ```powershell
 git clone https://github.com/Thanukamax/h-cli.git
-cd h-cli\H-CLI` code
+cd "h-cli\H-CLI code"
 .\install.ps1
 ```
 
-The installer will install Python dependencies, check for mpv, and add shell aliases so you can run `hcli` from anywhere.
+The installer handles everything — installs Python dependencies, checks for mpv, and adds shell aliases so you can run `hcli` from anywhere.
 
 ## Requirements
 
@@ -50,12 +50,6 @@ pip3 install requests beautifulsoup4 yt-dlp
 ### Windows
 ```powershell
 winget install mpv
-pip install requests beautifulsoup4 yt-dlp
-```
-
-### Android (Termux)
-```bash
-pkg install python mpv ffmpeg
 pip install requests beautifulsoup4 yt-dlp
 ```
 
