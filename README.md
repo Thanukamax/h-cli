@@ -93,23 +93,32 @@ uv tool install git+https://github.com/Thanukamax/h-cli.git
 - **MPV** - Video player ([mpv.io](https://mpv.io))
 - **yt-dlp** - Required for downloads and some external mirrors (`pip install yt-dlp`)
 
+#### Optional (terminal mascot / image rendering)
+
+- **chafa** - Terminal image renderer ([hpjansson.org/chafa](https://hpjansson.org/chafa/))
+- **Pillow** and **chafa.py** are Python dependencies (auto-installed via pip/pipx/uv)
+- **pyfiglet** - ASCII art text banners (auto-installed)
+
+If these are missing, H-CLI works fine — you just won't see the mascot art.
+
 ### System Dependencies
 
 #### Linux (Debian/Ubuntu)
 ```bash
-sudo apt update && sudo apt install mpv ffmpeg
+sudo apt update && sudo apt install mpv ffmpeg chafa
 pip install yt-dlp
 ```
 
 #### Linux (Fedora)
 ```bash
-sudo dnf install mpv ffmpeg
+sudo dnf install mpv ffmpeg chafa
 pip install yt-dlp
 ```
 
 #### Windows
 ```powershell
 winget install mpv
+choco install chafa    # or: scoop install chafa
 pip install yt-dlp
 ```
 

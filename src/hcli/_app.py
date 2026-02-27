@@ -6,19 +6,36 @@ Themed terminal UI, multi-source support, MPV playback
 
 import argparse
 import atexit
+import difflib
 import os
 import re
+import shutil
 import signal
 import sys
+import textwrap
 import time
 import subprocess
 import threading
 import json
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Tuple, Optional, Dict, Any
 
 import requests
 from bs4 import BeautifulSoup
+
+try:
+    import pyfiglet
+    HAS_PYFIGLET = True
+except ImportError:
+    HAS_PYFIGLET = False
+
+try:
+    import PIL.Image
+    from chafa import Canvas, CanvasConfig, PixelType
+    HAS_CHAFA = True
+except ImportError:
+    HAS_CHAFA = False
 
 # ============================================================================
 # THEME CONFIGURATION
@@ -35,6 +52,10 @@ class Theme:
     WHITE = "\033[38;5;255m"        # Text white
     GRAY = "\033[38;5;245m"         # Muted gray
     SILVER = "\033[38;5;252m"       # Silver
+    DEEP_PINK = "\033[38;5;199m"    # Deep pink
+    HOT_PINK = "\033[38;5;206m"     # Hot pink
+    BLUSH = "\033[38;5;218m"        # Soft blush pink
+    DIM_ROSE = "\033[38;5;132m"     # Muted mauve/rose
     RESET = "\033[0m"
 
     # Box drawing
@@ -55,24 +76,127 @@ class Theme:
     SYM_INFO = "ⓘ"
     SYM_LOADING = "⟳"
     SYM_STAR = "★"
-    SYM_ARROW = "»"
+    SYM_ARROW = "❯"
+    SYM_HEART = "♥"
+
+    # Gradient color stops (ANSI 256): deep pink → hot pink → blush → light purple → purple
+    GRADIENT_STOPS = [199, 206, 218, 183, 141]
+
+    @classmethod
+    def _lerp_color(cls, c1: int, c2: int, t: float) -> int:
+        """Linearly interpolate between two ANSI 256 color codes."""
+        return round(c1 + (c2 - c1) * t)
+
+    @classmethod
+    def gradient(cls, text: str, stops: Optional[list] = None) -> str:
+        """Apply gradient coloring across a string using ANSI 256 colors."""
+        stops = stops or cls.GRADIENT_STOPS
+        visible = [ch for ch in text if ch not in (" ", "\n", "\t")]
+        if len(visible) <= 1:
+            return f"\033[38;5;{stops[0]}m{text}{cls.RESET}"
+
+        result = []
+        vi = 0
+        total = len(visible) - 1
+        num_segments = len(stops) - 1
+
+        for ch in text:
+            if ch in (" ", "\n", "\t"):
+                result.append(ch)
+            else:
+                pos = vi / total  # 0.0 → 1.0
+                seg = min(int(pos * num_segments), num_segments - 1)
+                local_t = (pos * num_segments) - seg
+                color = cls._lerp_color(stops[seg], stops[seg + 1], local_t)
+                result.append(f"\033[38;5;{color}m{ch}")
+                vi += 1
+
+        result.append(cls.RESET)
+        return "".join(result)
+
+    # -- Layout helpers ------------------------------------------------------
+
+    @classmethod
+    def get_width(cls) -> int:
+        """Get terminal width."""
+        try:
+            return shutil.get_terminal_size().columns
+        except Exception:
+            return 80
+
+    @classmethod
+    def _visible_len(cls, text: str) -> int:
+        """Length of text without ANSI escape codes."""
+        return len(re.sub(r'\033\[[0-9;]*m', '', text))
+
+    @classmethod
+    def _center_line(cls, text: str, width: int = 0) -> str:
+        """Center a line of text accounting for ANSI codes."""
+        w = width or cls.get_width()
+        vlen = cls._visible_len(text)
+        pad = max(0, (w - vlen) // 2)
+        return " " * pad + text
+
+    @classmethod
+    def _center_block(cls, block: str, width: int = 0) -> str:
+        """Center each line of a multi-line string."""
+        return "\n".join(cls._center_line(line, width) for line in block.split("\n"))
+
+    @classmethod
+    def _content_pad(cls) -> str:
+        """Padding string for centered content container (max ~88 cols)."""
+        content_w = min(cls.get_width() - 4, 88)
+        return " " * max(0, (cls.get_width() - content_w) // 2)
+
+    # -- Display methods -----------------------------------------------------
 
     @classmethod
     def banner(cls) -> str:
-        """Generate the main banner"""
+        """Generate the main banner with ASCII art, centered in terminal"""
         w = 58
-        lines = [
+        sub_text = "Your Late Night Companion"
+        sub_visible = f"  {sub_text}"
+        sub_pad_n = w - len(sub_visible)
+
+        if HAS_PYFIGLET:
+            art = pyfiglet.figlet_format("H-CLI", font="slant").rstrip("\n")
+            art_lines = art.split("\n")
+            raw = [f"{cls.PRIMARY}{cls.TL}{cls.H * w}{cls.TR}{cls.RESET}"]
+            for al in art_lines:
+                padded = al.ljust(w)[:w]
+                raw.append(
+                    f"{cls.PRIMARY}{cls.V}{cls.RESET}"
+                    f"{cls.gradient(padded)}"
+                    f"{cls.PRIMARY}{cls.V}{cls.RESET}"
+                )
+            raw.append(
+                f"{cls.PRIMARY}{cls.V}{cls.RESET}"
+                f"  {cls.DIM_ROSE}{sub_text}{cls.RESET}"
+                f"{' ' * sub_pad_n}"
+                f"{cls.PRIMARY}{cls.V}{cls.RESET}"
+            )
+            raw.append(f"{cls.PRIMARY}{cls.BL}{cls.H * w}{cls.BR}{cls.RESET}")
+            banner_str = cls._center_block("\n".join(raw))
+            return banner_str + "\n" + cls._pixel_girl(0)
+
+        # Fallback: simple banner
+        title_line = f"  {cls.ACCENT}H-CLI{cls.RESET}  {cls.DIM_ROSE}{sub_text}{cls.RESET}"
+        title_pad = w - 9 - len(sub_text)
+        raw = [
             f"{cls.PRIMARY}{cls.TL}{cls.H * w}{cls.TR}{cls.RESET}",
-            f"{cls.PRIMARY}{cls.V}{cls.RESET}  {cls.ACCENT}H-CLI{cls.RESET}  {cls.GRAY}Terminal Streaming Client{cls.RESET}{' ' * 23}{cls.PRIMARY}{cls.V}{cls.RESET}",
+            f"{cls.PRIMARY}{cls.V}{cls.RESET}{title_line}{' ' * title_pad}{cls.PRIMARY}{cls.V}{cls.RESET}",
             f"{cls.PRIMARY}{cls.V}{cls.RESET}{' ' * w}{cls.PRIMARY}{cls.V}{cls.RESET}",
             f"{cls.PRIMARY}{cls.BL}{cls.H * w}{cls.BR}{cls.RESET}",
         ]
-        return "\n".join(lines)
+        banner_str = cls._center_block("\n".join(raw))
+        return banner_str + "\n" + cls._pixel_girl(0)
 
     @classmethod
     def header(cls, text: str) -> str:
-        """Create a section header"""
-        return f"\n  {cls.GRAY}{cls.TL}{cls.H} {text.upper()} {cls.H}{cls.TR}{cls.RESET}\n"
+        """Create a section header with gradient, centered"""
+        label = cls.gradient(text.upper())
+        line = f"{cls.GRAY}{cls.TL}{cls.H} {label} {cls.GRAY}{cls.H}{cls.TR}{cls.RESET}"
+        return f"\n{cls._center_line(line)}\n"
 
     @classmethod
     def status(cls, level: str, msg: str) -> str:
@@ -85,12 +209,14 @@ class Theme:
             "loading": (cls.ACCENT, cls.SYM_LOADING),
         }
         color, sym = indicators.get(level, indicators["info"])
-        return f"  {color}{sym}{cls.RESET} {cls.WHITE}{msg}{cls.RESET}"
+        pad = cls._content_pad()
+        return f"{pad}{color}{sym}{cls.RESET} {cls.WHITE}{msg}{cls.RESET}"
 
     @classmethod
     def prompt(cls, text: str = "Enter command") -> str:
         """Styled input prompt"""
-        return f"\n{cls.ACCENT}{cls.SYM_ARROW}{cls.RESET} {cls.PRIMARY}{text}{cls.RESET}: "
+        pad = cls._content_pad()
+        return f"\n{pad}{cls.ACCENT}{cls.SYM_ARROW}{cls.RESET} {cls.PRIMARY}{text}{cls.RESET}: "
 
     @classmethod
     def progress_bar(cls, current: int, total: int, width: int = 30) -> str:
@@ -101,8 +227,156 @@ class Theme:
 
     @classmethod
     def divider(cls) -> str:
-        """Section divider"""
-        return f"\n  {cls.PRIMARY}{cls.H * 60}{cls.RESET}\n"
+        """Section divider, centered"""
+        line = f"{cls.PRIMARY}{cls.H * 60}{cls.RESET}"
+        return f"\n{cls._center_line(line)}\n"
+
+    # -- Pixel art mascot (chafa) -------------------------------------------
+
+    _mascot_cache: Dict[int, str] = {}   # frame -> rendered string
+    _mascot_height: int = 0              # line count of rendered art
+
+    @classmethod
+    def _render_sprite(cls, path: str, width: int = 22) -> str:
+        """Render a PNG sprite to terminal art via chafa. Returns raw string."""
+        img = PIL.Image.open(path).convert("RGBA")
+        pixels = list(img.tobytes())
+        config = CanvasConfig()
+        config.width = width
+        config.height = width
+        config.calc_canvas_geometry(img.width, img.height, 1 / 2)
+        canvas = Canvas(config)
+        canvas.draw_all_pixels(
+            PixelType.CHAFA_PIXEL_RGBA8_UNASSOCIATED,
+            pixels, img.width, img.height, img.width * 4,
+        )
+        return canvas.print().decode()
+
+    @classmethod
+    def _load_mascot(cls) -> None:
+        """Pre-render all 3 mascot frames and cache them."""
+        if cls._mascot_cache:
+            return
+        base = getattr(sys, '_MEIPASS', os.path.dirname(__file__))
+        assets = os.path.join(base, "hcli", "assets") if hasattr(sys, '_MEIPASS') else os.path.join(os.path.dirname(__file__), "assets")
+        frames = {
+            0: os.path.join(assets, "mascot.png"),
+            1: os.path.join(assets, "mascot_blink.png"),
+            2: os.path.join(assets, "mascot_heart.png"),
+        }
+        for idx, path in frames.items():
+            if os.path.isfile(path):
+                cls._mascot_cache[idx] = cls._render_sprite(path)
+        if cls._mascot_cache:
+            cls._mascot_height = cls._mascot_cache[0].count("\n") + 1
+
+    @classmethod
+    def _pixel_girl(cls, frame: int = 0) -> str:
+        """Get mascot art for a frame (0=idle, 1=blink, 2=heart), centered."""
+        if not HAS_CHAFA:
+            return ""
+        cls._load_mascot()
+        raw = cls._mascot_cache.get(frame, cls._mascot_cache.get(0, ""))
+        if not raw:
+            return ""
+        return cls._center_block(raw)
+
+
+# ============================================================================
+# ANIMATED SPINNER
+# ============================================================================
+class Spinner:
+    """Animated terminal spinner with pixel-art mascot."""
+    BRAILLE = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    # Idle animation cycle: idle×6 → blink×1 → idle×4 → heart×2
+    _CYCLE = [0]*6 + [1] + [0]*4 + [2]*2
+
+    def __init__(self, message: str, done_message: str = ""):
+        self.message = message
+        self.done_message = done_message
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._use_art = HAS_CHAFA
+
+    def __enter__(self):
+        self._stop.clear()
+        # Pre-load mascot frames (populates Theme._mascot_height)
+        if self._use_art:
+            try:
+                Theme._load_mascot()
+            except Exception:
+                self._use_art = False
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_):
+        self._stop.set()
+        if self._thread:
+            self._thread.join()
+        if self._use_art and Theme._mascot_height:
+            # Clear the art + message lines
+            total = Theme._mascot_height + 1
+            for _ in range(total):
+                sys.stdout.write("\033[2K\033[1A")
+            sys.stdout.write("\033[2K\r")
+        else:
+            sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+        if self.done_message:
+            print(Theme.status("success", self.done_message))
+
+    def _spin(self):
+        if self._use_art and Theme._mascot_height:
+            self._spin_art()
+        else:
+            self._spin_simple()
+
+    def _spin_simple(self):
+        """Fallback: single-line braille spinner."""
+        i = 0
+        pad = Theme._content_pad()
+        while not self._stop.is_set():
+            frame = self.BRAILLE[i % len(self.BRAILLE)]
+            sys.stdout.write(
+                f"\r{pad}{Theme.ACCENT}{frame}{Theme.RESET} "
+                f"{Theme.WHITE}{self.message}{Theme.RESET}"
+            )
+            sys.stdout.flush()
+            i += 1
+            self._stop.wait(0.08)
+
+    def _spin_art(self):
+        """Pixel-art mascot animation with loading message below."""
+        art_h = Theme._mascot_height
+        cycle_i = 0
+        braille_i = 0
+
+        # Reserve vertical space
+        sys.stdout.write("\n" * (art_h + 1))
+        sys.stdout.flush()
+
+        while not self._stop.is_set():
+            art_idx = self._CYCLE[cycle_i % len(self._CYCLE)]
+            art = Theme._pixel_girl(art_idx)
+            braille = self.BRAILLE[braille_i % len(self.BRAILLE)]
+
+            # Move cursor up to top of art region
+            sys.stdout.write(f"\033[{art_h + 1}A")
+            for line in art.split("\n"):
+                sys.stdout.write(f"\033[2K{line}\n")
+            # Message line below art
+            pad = Theme._content_pad()
+            sys.stdout.write(
+                f"\033[2K{pad}{Theme.ACCENT}{braille}{Theme.RESET} "
+                f"{Theme.WHITE}{self.message}{Theme.RESET}"
+            )
+            sys.stdout.flush()
+
+            braille_i += 1
+            cycle_i += 1
+            self._stop.wait(0.3)
 
 
 # ============================================================================
@@ -129,6 +403,7 @@ class Config:
         CACHE_DIR = os.path.expanduser("~/.cache/h-cli")
 
     STREAM_CACHE_FILE = os.path.join(CACHE_DIR, "stream_cache.json")
+    DATA_CACHE_FILE = os.path.join(CACHE_DIR, "data_cache.json")
 
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -142,33 +417,37 @@ class Config:
 # CACHE
 # ============================================================================
 class StreamCache:
-    """LRU cache for stream URLs"""
+    """LRU cache for stream URLs (thread-safe)"""
 
     def __init__(self, max_size: int = 100):
         self.cache: OrderedDict = OrderedDict()
         self.max_size = max_size
+        self._lock = threading.Lock()
         self._load()
 
     def get(self, url: str) -> Optional[str]:
-        if url in self.cache:
-            self.cache.move_to_end(url)
-            return self.cache[url]
-        return None
+        with self._lock:
+            if url in self.cache:
+                self.cache.move_to_end(url)
+                return self.cache[url]
+            return None
 
     def put(self, url: str, stream_url: str):
-        if url in self.cache:
-            self.cache.move_to_end(url)
-        else:
-            if len(self.cache) >= self.max_size:
-                self.cache.popitem(last=False)
-            self.cache[url] = stream_url
-        self._save()
+        with self._lock:
+            if url in self.cache:
+                self.cache.move_to_end(url)
+            else:
+                if len(self.cache) >= self.max_size:
+                    self.cache.popitem(last=False)
+                self.cache[url] = stream_url
+            self._save()
 
     def _save(self):
         try:
             os.makedirs(Config.CACHE_DIR, exist_ok=True)
+            snapshot = list(self.cache.items())
             with open(Config.STREAM_CACHE_FILE, "w") as f:
-                json.dump(list(self.cache.items()), f)
+                json.dump(snapshot, f)
         except OSError:
             pass
 
@@ -180,6 +459,109 @@ class StreamCache:
                     self.cache = OrderedDict(items[-self.max_size :])
         except (OSError, json.JSONDecodeError):
             self.cache = OrderedDict()
+
+
+class DataCache:
+    """Persistent multi-layer cache with TTL for scraped data (thread-safe)."""
+
+    TTL = {
+        "search": 3600,       # 1 hour
+        "series_info": 86400, # 24 hours
+        "episodes": 21600,    # 6 hours
+        "registry": 2592000,  # 30 days
+    }
+    MAX_ENTRIES = 750
+
+    def __init__(self):
+        self._data: OrderedDict = OrderedDict()
+        self._lock = threading.Lock()
+        self._load()
+
+    def get(self, namespace: str, key: str) -> Optional[Any]:
+        with self._lock:
+            full_key = f"{namespace}:{key}"
+            entry = self._data.get(full_key)
+            if entry is None:
+                return None
+            if time.time() - entry["ts"] > entry["ttl"]:
+                del self._data[full_key]
+                return None
+            self._data.move_to_end(full_key)
+            return entry["val"]
+
+    def has(self, namespace: str, key: str) -> bool:
+        """Check if a valid (non-expired) entry exists without fetching."""
+        with self._lock:
+            full_key = f"{namespace}:{key}"
+            entry = self._data.get(full_key)
+            if entry is None:
+                return False
+            if time.time() - entry["ts"] > entry["ttl"]:
+                del self._data[full_key]
+                return False
+            return True
+
+    def put(self, namespace: str, key: str, value: Any):
+        with self._lock:
+            full_key = f"{namespace}:{key}"
+            ttl = self.TTL.get(namespace, 3600)
+            self._data[full_key] = {"val": value, "ts": time.time(), "ttl": ttl}
+            self._data.move_to_end(full_key)
+            self._evict()
+            self._save()
+
+    def scan(self, namespace: str) -> List[Any]:
+        """Return all valid values for a namespace."""
+        with self._lock:
+            results = []
+            now = time.time()
+            prefix = f"{namespace}:"
+            for key, entry in self._data.items():
+                if key.startswith(prefix) and now - entry["ts"] <= entry["ttl"]:
+                    results.append(entry["val"])
+            return results
+
+    def _evict(self):
+        now = time.time()
+        expired = [k for k, v in self._data.items() if now - v["ts"] > v["ttl"]]
+        for k in expired:
+            del self._data[k]
+        while len(self._data) > self.MAX_ENTRIES:
+            self._data.popitem(last=False)
+
+    def clear(self):
+        with self._lock:
+            self._data = OrderedDict()
+            self._save()
+
+    def stats(self) -> Dict[str, int]:
+        """Count valid entries per namespace."""
+        with self._lock:
+            counts: Dict[str, int] = {}
+            now = time.time()
+            for key, entry in self._data.items():
+                if now - entry["ts"] <= entry["ttl"]:
+                    ns = key.split(":", 1)[0]
+                    counts[ns] = counts.get(ns, 0) + 1
+            return counts
+
+    def _save(self):
+        try:
+            os.makedirs(Config.CACHE_DIR, exist_ok=True)
+            snapshot = list(self._data.items())
+            with open(Config.DATA_CACHE_FILE, "w") as f:
+                json.dump(snapshot, f)
+        except OSError:
+            pass
+
+    def _load(self):
+        try:
+            if os.path.exists(Config.DATA_CACHE_FILE):
+                with open(Config.DATA_CACHE_FILE, "r") as f:
+                    items = json.load(f)
+                self._data = OrderedDict(items[-self.MAX_ENTRIES:])
+        except (OSError, json.JSONDecodeError):
+            self._data = OrderedDict()
 
 
 # ============================================================================
@@ -276,12 +658,13 @@ class PanicQuit:
         except FileNotFoundError:
             pass
 
-        # Wipe cache
-        try:
-            if os.path.exists(Config.STREAM_CACHE_FILE):
-                os.remove(Config.STREAM_CACHE_FILE)
-        except OSError:
-            pass
+        # Wipe caches
+        for cache_file in (Config.STREAM_CACHE_FILE, Config.DATA_CACHE_FILE):
+            try:
+                if os.path.exists(cache_file):
+                    os.remove(cache_file)
+            except OSError:
+                pass
 
         # Clear screen and hard exit — no traceback, no atexit
         os.system("cls" if os.name == "nt" else "clear")
@@ -642,10 +1025,67 @@ class Preloader:
 
 
 # ============================================================================
+# BACKGROUND PREFETCHER
+# ============================================================================
+class BackgroundPrefetcher:
+    """Speculatively prefetch series pages and streams in background threads."""
+
+    def __init__(self, max_workers: int = 3):
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._futures: list = []
+
+    def prefetch_series_pages(self, results: List[Tuple[str, str]],
+                              scraper: "Scraper", max_items: int = 5):
+        """Prefetch series pages for top N search results (skips cached)."""
+        self._cancel_pending()
+        for _, url in results[:max_items]:
+            if scraper.cache.has("series_info", url) and scraper.cache.has("episodes", url):
+                continue
+            fut = self._executor.submit(self._safe_fetch_series, scraper, url)
+            self._futures.append(fut)
+
+    def prefetch_streams(self, episodes: List[Tuple[str, str]], max_items: int = 3):
+        """Prefetch stream URLs for first N episodes (skips cached)."""
+        self._cancel_pending()
+        for _, url in episodes[:max_items]:
+            if StreamExtractor.cache.get(url) is not None:
+                continue
+            fut = self._executor.submit(self._safe_extract_stream, url)
+            self._futures.append(fut)
+
+    def _cancel_pending(self):
+        """Cancel queued-but-not-started futures."""
+        for fut in self._futures:
+            fut.cancel()
+        self._futures.clear()
+
+    def shutdown(self):
+        """Cancel pending work and shut down the executor."""
+        self._cancel_pending()
+        self._executor.shutdown(wait=False)
+
+    @staticmethod
+    def _safe_fetch_series(scraper: "Scraper", url: str):
+        try:
+            scraper._fetch_series_page(url)
+        except Exception:
+            pass  # Silent failure — worst case: user sees normal spinner
+
+    @staticmethod
+    def _safe_extract_stream(url: str):
+        try:
+            StreamExtractor.extract(url)
+        except Exception:
+            pass
+
+
+# ============================================================================
 # SCRAPER
 # ============================================================================
 class Scraper:
     """Search and fetch episode lists from HentaiMama"""
+
+    cache = DataCache()
 
     def __init__(self, source_key: str = "hm"):
         self.source = Config.SOURCES[source_key]
@@ -653,6 +1093,11 @@ class Scraper:
 
     def search(self, query: str) -> List[Tuple[str, str]]:
         """Search for series, returns list of (title, url)"""
+        cache_key = f"{self.base_url}:{query}"
+        cached = self.cache.get("search", cache_key)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/?s={query.replace(' ', '+')}"
         soup = Utils.fetch_soup(url)
 
@@ -679,25 +1124,126 @@ class Scraper:
                     suffix += f" [{rating}]"
                 results.append((f"{title}{suffix}", href))
 
+        results.sort(key=lambda r: self._relevance_score(query, r[0]), reverse=True)
+        self.cache.put("search", cache_key, results)
         return results
 
-    def get_series_info(self, series_url: str) -> Dict[str, Any]:
-        """Get series description, genres, metadata"""
-        soup = Utils.fetch_soup(series_url, timeout=12)
+    @staticmethod
+    def _relevance_score(query: str, title: str) -> float:
+        """Score how relevant a title is to the query (0.0–1.0)."""
+        cleaned = re.sub(r"\s*\(\d{4}\)", "", title)
+        cleaned = re.sub(r"\s*\[[^\]]*\]", "", cleaned)
+        q = query.lower()
+        t = cleaned.lower()
+        q_tokens = re.split(r"[\s\W]+", q)
+        t_tokens = re.split(r"[\s\W]+", t)
+        q_tokens = [tok for tok in q_tokens if tok]
+        t_tokens = [tok for tok in t_tokens if tok]
+        if not q_tokens:
+            return 0.0
+        scores = []
+        for qt in q_tokens:
+            if qt in t:
+                scores.append(1.0)
+            elif t_tokens:
+                best = max(
+                    difflib.SequenceMatcher(None, qt, tt).ratio()
+                    for tt in t_tokens
+                )
+                scores.append(best)
+            else:
+                scores.append(0.0)
+        return sum(scores) / len(scores)
 
+    def _build_word_bank(self, current_results: List[Tuple[str, str]]) -> set:
+        """Collect known words from all cached data and current results."""
+        titles: List[str] = []
+        # Registry entries (30-day cache of browsed titles)
+        for entry in self.cache.scan("registry"):
+            if isinstance(entry, dict) and entry.get("title"):
+                titles.append(entry["title"])
+        # Past search results cached locally
+        for cached_list in self.cache.scan("search"):
+            if isinstance(cached_list, list):
+                for item in cached_list:
+                    if isinstance(item, (list, tuple)) and len(item) >= 1:
+                        titles.append(str(item[0]))
+        # Series info titles
+        for info in self.cache.scan("series_info"):
+            if isinstance(info, dict) and info.get("title"):
+                titles.append(info["title"])
+        # Current search results
+        for title, _ in current_results:
+            titles.append(title)
+        words: set = set()
+        for t in titles:
+            for tok in re.split(r"[\s\W]+", t.lower()):
+                if len(tok) >= 2:
+                    words.add(tok)
+        return words
+
+    @staticmethod
+    def _fuzzy_correct(query: str, word_bank: set) -> Optional[str]:
+        """Attempt to correct a misspelled query using known words."""
+        tokens = re.split(r"[\s]+", query.lower())
+        tokens = [tok for tok in tokens if tok]
+        if not tokens or not word_bank:
+            return None
+        corrected = []
+        changed = False
+        bank_list = list(word_bank)
+        for tok in tokens:
+            if tok in word_bank:
+                corrected.append(tok)
+                continue
+            matches = difflib.get_close_matches(tok, bank_list, n=1, cutoff=0.5)
+            if matches and matches[0] != tok:
+                corrected.append(matches[0])
+                changed = True
+            else:
+                corrected.append(tok)
+        return " ".join(corrected) if changed else None
+
+    def _local_fuzzy_search(self, query: str) -> List[Tuple[str, str]]:
+        """Last-resort search: score every cached title against the query."""
+        candidates: List[Tuple[str, str]] = []
+        seen_urls: set = set()
+        # Gather from registry
+        for entry in self.cache.scan("registry"):
+            if isinstance(entry, dict) and entry.get("title") and entry.get("url"):
+                url = entry["url"]
+                if url not in seen_urls:
+                    seen_urls.add(url)
+                    candidates.append((entry["title"], url))
+        # Gather from past search results
+        for cached_list in self.cache.scan("search"):
+            if isinstance(cached_list, list):
+                for item in cached_list:
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        url = str(item[1])
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            candidates.append((str(item[0]), url))
+        if not candidates:
+            return []
+        scored = [(self._relevance_score(query, title), title, url)
+                  for title, url in candidates]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        # Return anything above a very low threshold (letters vaguely overlap)
+        return [(title, url) for score, title, url in scored[:15] if score > 0.5]
+
+    def _parse_series_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
+        """Parse series metadata from a BeautifulSoup object (no HTTP)."""
         info: Dict[str, Any] = {"title": "", "description": "", "genres": [],
                                  "studio": "", "status": "", "date": ""}
 
-        # Description
         paragraphs = soup.select(".wp-content p")
         info["description"] = "\n".join(
             p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)
         )
 
-        # Genres
         info["genres"] = [a.get_text(strip=True) for a in soup.select(".sgeneros a")]
 
-        # Custom fields: title, studio, first air, last air, status
         fields = [s.get_text(strip=True) for s in soup.select(".custom_fields span.valor")]
         if len(fields) >= 1:
             info["title"] = fields[0]
@@ -710,9 +1256,8 @@ class Scraper:
 
         return info
 
-    def get_episodes(self, series_url: str) -> List[Tuple[str, str]]:
-        """Get all episodes for a series, returns sorted list of (title, url)"""
-        soup = Utils.fetch_soup(series_url, timeout=12)
+    def _parse_episodes(self, soup: BeautifulSoup) -> List[Tuple[str, str]]:
+        """Parse episode list from a BeautifulSoup object (no HTTP)."""
         episodes = []
 
         for article in soup.select(self.source["episode_selector"]):
@@ -728,6 +1273,72 @@ class Scraper:
         # Episodes come newest-first from the site, reverse for sequential order
         episodes.reverse()
         return episodes
+
+    def _fetch_series_page(self, series_url: str):
+        """Fetch series page once, parse and cache both info + episodes."""
+        # Skip if both are already cached
+        if self.cache.has("series_info", series_url) and self.cache.has("episodes", series_url):
+            return
+
+        soup = Utils.fetch_soup(series_url, timeout=12)
+
+        if not self.cache.has("series_info", series_url):
+            info = self._parse_series_info(soup)
+            self.cache.put("series_info", series_url, info)
+
+        if not self.cache.has("episodes", series_url):
+            episodes = self._parse_episodes(soup)
+            self.cache.put("episodes", series_url, episodes)
+
+        # Register in persistent registry
+        self._register_series(series_url)
+
+    def get_series_info(self, series_url: str) -> Dict[str, Any]:
+        """Get series description, genres, metadata"""
+        cached = self.cache.get("series_info", series_url)
+        if cached is not None:
+            return cached
+
+        # Unified fetch populates both caches
+        self._fetch_series_page(series_url)
+        result = self.cache.get("series_info", series_url)
+        return result if result is not None else {
+            "title": "", "description": "", "genres": [],
+            "studio": "", "status": "", "date": ""
+        }
+
+    def get_episodes(self, series_url: str) -> List[Tuple[str, str]]:
+        """Get all episodes for a series, returns sorted list of (title, url)"""
+        cached = self.cache.get("episodes", series_url)
+        if cached is not None:
+            return cached
+
+        # Unified fetch populates both caches
+        self._fetch_series_page(series_url)
+        result = self.cache.get("episodes", series_url)
+        return result if result is not None else []
+
+    def _register_series(self, series_url: str):
+        """Store a lightweight registry entry for the series (30-day TTL)."""
+        info = self.cache.get("series_info", series_url)
+        episodes = self.cache.get("episodes", series_url)
+        if not info:
+            return
+        entry = {
+            "title": info.get("title", ""),
+            "url": series_url,
+            "genres": info.get("genres", []),
+            "studio": info.get("studio", ""),
+            "episode_count": len(episodes) if episodes else 0,
+            "last_seen": time.time(),
+        }
+        self.cache.put("registry", series_url, entry)
+
+    def get_registry_entries(self) -> List[Dict[str, Any]]:
+        """Return all registry entries sorted by last_seen descending."""
+        entries = self.cache.scan("registry")
+        entries.sort(key=lambda e: e.get("last_seen", 0), reverse=True)
+        return entries
 
 
 # ============================================================================
@@ -807,9 +1418,8 @@ class Downloader:
         ]
 
         try:
-            print(Theme.status("loading", "Downloading..."))
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-            print(Theme.status("success", "Download complete!"))
+            with Spinner("Downloading...", "Download complete!"):
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
             return True
         except subprocess.CalledProcessError:
             print(Theme.status("error", "Download failed"))
@@ -834,10 +1444,13 @@ class UI:
     @staticmethod
     def select_from_list(items: List[Tuple[str, str]], title: str) -> int:
         """Display numbered list, return selected index"""
+        pad = Theme._content_pad()
+        max_name = min(Theme.get_width() - len(pad) - 8, 80)
+
         print(Theme.header(title))
         for i, (name, _) in enumerate(items, 1):
-            display = name[:55] + "..." if len(name) > 55 else name
-            print(f"  {Theme.ACCENT}{i:3d}.{Theme.RESET} {Theme.WHITE}{display}{Theme.RESET}")
+            display = name[:max_name] + "..." if len(name) > max_name else name
+            print(f"{pad}{Theme.ACCENT}{i:3d}.{Theme.RESET} {Theme.WHITE}{display}{Theme.RESET}")
 
         while True:
             try:
@@ -855,6 +1468,8 @@ class UI:
     def display_episodes(episodes: List[Tuple[str, str]], page: int = 1,
                          per_page: int = 20) -> int:
         """Display paginated episode list, return total pages"""
+        pad = Theme._content_pad()
+        max_name = min(Theme.get_width() - len(pad) - 8, 80)
         start = (page - 1) * per_page
         end = min(start + per_page, len(episodes))
         total_pages = (len(episodes) + per_page - 1) // per_page
@@ -863,30 +1478,41 @@ class UI:
 
         for i in range(start, end):
             title = episodes[i][0]
-            display = title[:55] + "..." if len(title) > 55 else title
-            print(f"  {Theme.SILVER}{i + 1:3d}.{Theme.RESET} {Theme.WHITE}{display}{Theme.RESET}")
+            display = title[:max_name] + "..." if len(title) > max_name else title
+            print(f"{pad}{Theme.SILVER}{i + 1:3d}.{Theme.RESET} {Theme.WHITE}{display}{Theme.RESET}")
 
         if total_pages > 1:
-            print(f"\n  {Theme.GRAY}Page {page}/{total_pages}  "
+            print(f"\n{pad}{Theme.GRAY}Page {page}/{total_pages}  "
                   f"{Theme.SECONDARY}[N]ext  [P]rev{Theme.RESET}")
 
         return total_pages
 
     @staticmethod
     def display_series_info(info: Dict[str, Any]):
-        """Display series metadata inline"""
+        """Display series metadata in a centered card"""
+        pad = Theme._content_pad()
+        desc_w = min(Theme.get_width() - len(pad) * 2 - 2, 84)
+
         if info.get("title"):
-            print(f"\n  {Theme.ACCENT}{info['title']}{Theme.RESET}")
+            print(f"\n{pad}{Theme.ACCENT}{info['title']}{Theme.RESET}")
+            title_len = min(len(info['title']), desc_w)
+            print(f"{pad}{Theme.DIM_ROSE}{Theme.H * title_len}{Theme.RESET}")
         if info.get("studio"):
-            print(f"  {Theme.GRAY}Studio: {Theme.WHITE}{info['studio']}{Theme.RESET}")
+            print(f"{pad}{Theme.GRAY}Studio: {Theme.WHITE}{info['studio']}{Theme.RESET}")
         if info.get("status"):
-            print(f"  {Theme.GRAY}Status: {Theme.WHITE}{info['status']}{Theme.RESET}")
+            print(f"{pad}{Theme.GRAY}Status: {Theme.WHITE}{info['status']}{Theme.RESET}")
         if info.get("date"):
-            print(f"  {Theme.GRAY}Aired:  {Theme.WHITE}{info['date']}{Theme.RESET}")
+            print(f"{pad}{Theme.GRAY}Aired:  {Theme.WHITE}{info['date']}{Theme.RESET}")
         if info.get("genres"):
-            print(f"  {Theme.GRAY}Genres: {Theme.SECONDARY}{', '.join(info['genres'])}{Theme.RESET}")
+            print(f"{pad}{Theme.GRAY}Genres: {Theme.SECONDARY}{', '.join(info['genres'])}{Theme.RESET}")
         if info.get("description"):
-            print(f"\n  {Theme.WHITE}{info['description'][:300]}{Theme.RESET}")
+            print()
+            for paragraph in info['description'].split("\n"):
+                paragraph = paragraph.strip()
+                if paragraph:
+                    wrapped = textwrap.fill(paragraph, width=desc_w)
+                    for line in wrapped.split("\n"):
+                        print(f"{pad}{Theme.BLUSH}{line}{Theme.RESET}")
 
     @staticmethod
     def select_episodes(episodes: List[Tuple[str, str]],
@@ -902,7 +1528,8 @@ class UI:
                 UI.display_series_info(series_info)
             total_pages = UI.display_episodes(episodes, page, per_page)
 
-            print(f"\n  {Theme.GRAY}Enter episode numbers (e.g. {Theme.SECONDARY}1-5,8,10-12{Theme.GRAY}), "
+            pad = Theme._content_pad()
+            print(f"\n{pad}{Theme.GRAY}Enter episode numbers (e.g. {Theme.SECONDARY}1-5,8,10-12{Theme.GRAY}), "
                   f"{Theme.SECONDARY}all{Theme.GRAY}, or {Theme.SECONDARY}n/p{Theme.GRAY} to navigate{Theme.RESET}")
 
             try:
@@ -944,16 +1571,20 @@ class UI:
     @staticmethod
     def show_playback_controls(title: str, current: int, total: int):
         """Display playback controls"""
+        pad = Theme._content_pad()
+        max_title = min(Theme.get_width() - len(pad) - 4, 80)
+        display = title[:max_title] + "..." if len(title) > max_title else title
+
         print(Theme.header(f"Now Playing  ({current}/{total})"))
-        print(f"  {Theme.SECONDARY}{title[:60]}{Theme.RESET}")
+        print(f"{pad}{Theme.SECONDARY}{display}{Theme.RESET}")
         print()
-        print(f"  {Theme.SECONDARY}[N]{Theme.RESET} Next    "
+        print(f"{pad}{Theme.SECONDARY}[N]{Theme.RESET} Next    "
               f"{Theme.SECONDARY}[P]{Theme.RESET} Previous    "
               f"{Theme.SECONDARY}[S]{Theme.RESET} Skip to    "
               f"{Theme.SECONDARY}[R]{Theme.RESET} Replay")
-        print(f"  {Theme.SECONDARY}[D]{Theme.RESET} Download "
+        print(f"{pad}{Theme.SECONDARY}[D]{Theme.RESET} Download "
               f"{Theme.SECONDARY}[Q]{Theme.RESET} Quit")
-        print(f"\n  {Theme.GRAY}Close MPV or enter a command to continue...{Theme.RESET}")
+        print(f"\n{pad}{Theme.GRAY}Close MPV or enter a command to continue...{Theme.RESET}")
 
 
 # ============================================================================
@@ -964,6 +1595,7 @@ class HentaiCLI:
 
     def __init__(self):
         self.player: Optional[Player] = None
+        self._prefetcher = BackgroundPrefetcher(max_workers=3)
         os.makedirs(Config.CACHE_DIR, exist_ok=True)
         os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
 
@@ -1013,10 +1645,14 @@ Examples:
         """Run with CLI arguments"""
         UI.show_banner()
 
+        scraper = Scraper(args.source or "hm")
         results = self._search(args.query, args.source)
         if not results:
             print(Theme.status("error", "No results found"))
             return
+
+        # Layer 2: prefetch top series pages while user reads results
+        self._prefetcher.prefetch_series_pages(results, scraper)
 
         idx = UI.select_from_list(results, "Search Results")
         _, series_url = results[idx]
@@ -1027,6 +1663,9 @@ Examples:
         if not episodes:
             print(Theme.status("error", "No episodes found"))
             return
+
+        # Layer 3: prefetch first 3 streams while user reads episode list
+        self._prefetcher.prefetch_streams(episodes)
 
         series_title = results[idx][0].split(" (")[0]  # strip year/rating suffix
         selected = UI.select_episodes(episodes, series_info)
@@ -1047,11 +1686,15 @@ Examples:
                 time.sleep(1)
                 continue
 
+            scraper = Scraper("hm")
             results = self._search(query, source=None)
             if not results:
                 print(Theme.status("error", "No results found"))
                 time.sleep(2)
                 continue
+
+            # Layer 2: prefetch top series pages while user reads results
+            self._prefetcher.prefetch_series_pages(results, scraper)
 
             idx = UI.select_from_list(results, "Search Results")
             _, series_url = results[idx]
@@ -1065,9 +1708,13 @@ Examples:
                 time.sleep(2)
                 continue
 
+            # Layer 3: prefetch first 3 streams while user reads episode list
+            self._prefetcher.prefetch_streams(episodes)
+
             selected = UI.select_episodes(episodes, series_info)
 
-            print(f"\n  {Theme.SECONDARY}[P]{Theme.RESET} Play    "
+            pad = Theme._content_pad()
+            print(f"\n{pad}{Theme.SECONDARY}[P]{Theme.RESET} Play    "
                   f"{Theme.SECONDARY}[D]{Theme.RESET} Download")
             choice = safe_input(Theme.prompt("Choose [P]")).strip().lower()
 
@@ -1085,33 +1732,71 @@ Examples:
 
     def _search(self, query: str, source: Optional[str] = None) -> List[Tuple[str, str]]:
         """Search for series"""
-        print(Theme.status("loading", f"Searching '{query}'..."))
-
         scraper = Scraper(source or "hm")
-        results = scraper.search(query)
+        cache_key = f"{scraper.base_url}:{query}"
 
-        if results:
-            print(Theme.status("success", f"Found {len(results)} result(s)"))
+        if Scraper.cache.has("search", cache_key):
+            results = scraper.search(query)
+            if results:
+                print(Theme.status("success", f"Found {len(results)} result(s) (cached)"))
+        else:
+            with Spinner(f"Searching '{query}'..."):
+                results = scraper.search(query)
+            if results:
+                print(Theme.status("success", f"Found {len(results)} result(s)"))
+
+        # Fuzzy correction: try harder if results are empty or irrelevant
+        best_score = max(
+            (Scraper._relevance_score(query, r[0]) for r in results), default=0.0
+        )
+        if best_score < 0.4:
+            word_bank = scraper._build_word_bank(results)
+            corrected = Scraper._fuzzy_correct(query, word_bank)
+            if corrected and corrected != query.lower():
+                with Spinner(f"Searching '{corrected}'..."):
+                    corrected_results = scraper.search(corrected)
+                if corrected_results:
+                    print(Theme.status(
+                        "info",
+                        f"Showing results for '{corrected}' (searched for '{query}')",
+                    ))
+                    results = corrected_results
+
+        # Last resort: if still empty, search local cache for anything close
+        if not results:
+            local = scraper._local_fuzzy_search(query)
+            if local:
+                print(Theme.status("info", f"Showing closest matches from history"))
+                results = local
+
         return results
 
     def _show_series_info(self, series_url: str) -> Dict[str, Any]:
         """Fetch and display series description and metadata"""
-        print(Theme.status("loading", "Fetching series info..."))
         scraper = Scraper("hm")
-        info = scraper.get_series_info(series_url)
+
+        if Scraper.cache.has("series_info", series_url):
+            info = scraper.get_series_info(series_url)
+        else:
+            with Spinner("Fetching series info..."):
+                info = scraper.get_series_info(series_url)
         UI.display_series_info(info)
         print()
         return info
 
     def _get_episodes(self, url: str, source: Optional[str] = None) -> List[Tuple[str, str]]:
         """Fetch episodes for a series"""
-        print(Theme.status("loading", "Fetching episodes..."))
-
         scraper = Scraper(source or "hm")
-        episodes = scraper.get_episodes(url)
 
-        if episodes:
-            print(Theme.status("success", f"Found {len(episodes)} episode(s)"))
+        if Scraper.cache.has("episodes", url):
+            episodes = scraper.get_episodes(url)
+            if episodes:
+                print(Theme.status("success", f"Found {len(episodes)} episode(s) (cached)"))
+        else:
+            with Spinner("Fetching episodes..."):
+                episodes = scraper.get_episodes(url)
+            if episodes:
+                print(Theme.status("success", f"Found {len(episodes)} episode(s)"))
         return episodes
 
     def _play_episodes(self, episodes: List[Tuple[str, str]], series_title: str,
@@ -1194,11 +1879,14 @@ Examples:
                            quality: str):
         """Download selected episodes"""
         print(Theme.divider())
-        print(Theme.status("loading", f"Downloading {len(episodes)} episode(s)..."))
+        print(Theme.status("info", f"Downloading {len(episodes)} episode(s)..."))
 
         ok, fail = 0, 0
         for i, (title, url) in enumerate(episodes, 1):
-            print(f"\n  {Theme.ACCENT}[{i}/{len(episodes)}]{Theme.RESET} {Theme.WHITE}{title[:60]}{Theme.RESET}")
+            pad = Theme._content_pad()
+            max_t = min(Theme.get_width() - len(pad) - 10, 80)
+            display = title[:max_t] + "..." if len(title) > max_t else title
+            print(f"\n{pad}{Theme.ACCENT}[{i}/{len(episodes)}]{Theme.RESET} {Theme.WHITE}{display}{Theme.RESET}")
             if Downloader.download(url, series_title, title, quality):
                 ok += 1
             else:
@@ -1213,16 +1901,25 @@ Examples:
     # -- helpers -------------------------------------------------------------
 
     def _clear_cache(self):
-        print(Theme.status("loading", "Clearing cache..."))
-        try:
-            if os.path.exists(Config.STREAM_CACHE_FILE):
-                os.remove(Config.STREAM_CACHE_FILE)
-                print(Theme.status("success", "Cache cleared"))
-            else:
-                print(Theme.status("info", "No cache to clear"))
-        except OSError as e:
-            print(Theme.status("error", f"Failed: {e}"))
+        self._prefetcher.shutdown()
+        with Spinner("Clearing cache..."):
+            cleared = False
+            for path in (Config.STREAM_CACHE_FILE, Config.DATA_CACHE_FILE):
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                        cleared = True
+                except OSError:
+                    pass
+            StreamExtractor.cache = StreamCache()
+            Scraper.cache = DataCache()
+        self._prefetcher = BackgroundPrefetcher(max_workers=3)
+        if cleared:
+            print(Theme.status("success", "All caches cleared"))
+        else:
+            print(Theme.status("info", "No cache to clear"))
 
     def _cleanup(self):
+        self._prefetcher.shutdown()
         if self.player:
             self.player.stop()

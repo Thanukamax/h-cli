@@ -124,3 +124,6 @@ Write-Host ""
 Write-Host "You also need mpv and yt-dlp installed:" -ForegroundColor Yellow
 Write-Host "  winget install mpv"
 Write-Host "  pip install yt-dlp"
+Write-Host ""
+Write-Host "Optional (terminal mascot art):" -ForegroundColor Yellow
+Write-Host "  choco install chafa    # or: scoop install chafa"

@@ -1,7 +1,12 @@
+# Reference / old code
 Reference/
+
+# Python
 __pycache__/
 *.pyc
 dist/
 build/
 *.egg-info/
-src/*.egg-info/
+
+# IDE
+*.code-workspace

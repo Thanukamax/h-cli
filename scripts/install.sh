@@ -153,3 +153,14 @@ case "$PLATFORM" in
         echo "  brew install mpv yt-dlp"
         ;;
 esac
+echo ""
+echo "Optional (terminal mascot art):"
+case "$PLATFORM" in
+    linux)
+        echo "  sudo apt install chafa        # Debian/Ubuntu"
+        echo "  sudo dnf install chafa        # Fedora"
+        ;;
+    macos)
+        echo "  brew install chafa"
+        ;;
+esac

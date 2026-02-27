@@ -35,7 +35,13 @@ jobs:
       - name: Install dependencies
         run: pip install . pyinstaller
 
+      - name: Locate asset directory
+        id: assets
+        shell: bash
+        run: echo "dir=$(python -c "import pathlib, hcli; print(pathlib.Path(hcli.__file__).parent / 'assets')")" >> "$GITHUB_OUTPUT"
+
       - name: Build standalone executable
+        shell: bash
         run: |
           python -c "
           with open('_entry.py', 'w') as f:
@@ -43,7 +49,11 @@ jobs:
               f.write('from hcli.cli import main\n')
               f.write('main()\n')
           "
-          pyinstaller --onefile --name hcli --clean _entry.py
+          SEP=":"
+          if [ "$RUNNER_OS" = "Windows" ]; then SEP=";"; fi
+          pyinstaller --onefile --name hcli --clean \
+            --add-data "${{ steps.assets.outputs.dir }}${SEP}hcli/assets" \
+            _entry.py
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
